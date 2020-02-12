@@ -25,6 +25,7 @@ import { matchRequestTiming } from './matchRequestTiming'
 import { computePerformanceResourceDetails, computeResourceKind, computeSize, isValidResource } from './resourceUtils'
 import { RumGlobal } from './rum.entry'
 import { RumSession } from './rumSession'
+import { getUserActionId } from './userActionCollection'
 import { trackView, viewContext, ViewMeasures } from './viewTracker'
 
 export interface PerformancePaintTiming extends PerformanceEntry {
@@ -39,6 +40,9 @@ export type PerformanceLongTaskTiming = PerformanceEntry
 export interface UserAction {
   name: string
   context?: Context
+  id?: string
+  startTime?: number
+  duration?: number
 }
 
 export enum RumEventCategory {
@@ -67,6 +71,7 @@ export interface RumResourceEvent {
   duration: number
   evt: {
     category: RumEventCategory.RESOURCE
+    userActionId: string | undefined
   }
   http: {
     performance?: PerformanceResourceDetails
@@ -88,6 +93,7 @@ export interface RumErrorEvent {
   error: ErrorContext
   evt: {
     category: RumEventCategory.ERROR
+    userActionId: string | undefined
   }
   message: string
 }
@@ -110,6 +116,7 @@ export interface RumLongTaskEvent {
   duration: number
   evt: {
     category: RumEventCategory.LONG_TASK
+    userActionId: string | undefined
   }
 }
 
@@ -117,7 +124,9 @@ export interface RumUserAction {
   evt: {
     category: RumEventCategory.USER_ACTION
     name: string
+    id?: string
   }
+  startTime?: number
   [key: string]: ContextValue
 }
 
@@ -229,6 +238,7 @@ function trackErrors(lifeCycle: LifeCycle, addRumEvent: (event: RumEvent) => voi
       message,
       evt: {
         category: RumEventCategory.ERROR,
+        userActionId: getUserActionId(),
       },
       ...context,
     })
@@ -236,13 +246,16 @@ function trackErrors(lifeCycle: LifeCycle, addRumEvent: (event: RumEvent) => voi
 }
 
 function trackUserAction(lifeCycle: LifeCycle, addUserEvent: (event: RumUserAction) => void) {
-  lifeCycle.subscribe(LifeCycleEventType.USER_ACTION_COLLECTED, ({ name, context }) => {
+  lifeCycle.subscribe(LifeCycleEventType.USER_ACTION_COLLECTED, ({ id, name, context, startTime, duration }) => {
     addUserEvent({
       ...context,
+      duration,
       evt: {
+        id,
         name,
         category: RumEventCategory.USER_ACTION,
       },
+      start_time: startTime,
     })
   })
 }
@@ -270,6 +283,7 @@ export function trackRequests(
       duration: msToNs(timing ? timing.duration : requestDetails.duration),
       evt: {
         category: RumEventCategory.RESOURCE,
+        userActionId: getUserActionId(),
       },
       http: {
         method: requestDetails.method,
@@ -283,6 +297,7 @@ export function trackRequests(
       resource: {
         kind,
       },
+      startTime: requestDetails.startTime,
       traceId: requestDetails.traceId,
     })
     lifeCycle.notify(LifeCycleEventType.RESOURCE_ADDED_TO_BATCH)
@@ -325,6 +340,7 @@ export function handleResourceEntry(
     duration: msToNs(entry.duration),
     evt: {
       category: RumEventCategory.RESOURCE,
+      userActionId: getUserActionId(),
     },
     http: {
       performance: computePerformanceResourceDetails(entry),
@@ -336,6 +352,7 @@ export function handleResourceEntry(
     resource: {
       kind: resourceKind,
     },
+    startTime: entry.startTime,
   })
   lifeCycle.notify(LifeCycleEventType.RESOURCE_ADDED_TO_BATCH)
 }
@@ -345,6 +362,8 @@ export function handleLongTaskEntry(entry: PerformanceLongTaskTiming, addRumEven
     duration: msToNs(entry.duration),
     evt: {
       category: RumEventCategory.LONG_TASK,
+      userActionId: getUserActionId(),
     },
+    startTime: entry.startTime,
   })
 }

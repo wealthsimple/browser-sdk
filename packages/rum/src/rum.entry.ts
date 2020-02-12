@@ -21,6 +21,7 @@ import { LifeCycle, LifeCycleEventType } from './lifeCycle'
 import { startPerformanceCollection } from './performanceCollection'
 import { startRum } from './rum'
 import { startRumSession } from './rumSession'
+import { startUserActionCollection } from './userActionCollection'
 
 export interface RumUserConfiguration extends UserConfiguration {
   applicationId: string
@@ -74,6 +75,7 @@ datadogRum.init = monitor((userConfiguration: RumUserConfiguration) => {
   const requestObservable = startRequestCollection()
   startPerformanceCollection(lifeCycle, session)
   startDOMMutationCollection(lifeCycle)
+  startUserActionCollection(lifeCycle)
 
   errorObservable.subscribe((errorMessage) => lifeCycle.notify(LifeCycleEventType.ERROR_COLLECTED, errorMessage))
   requestObservable.subscribe((requestEvent) => {
