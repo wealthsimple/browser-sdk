@@ -1,5 +1,5 @@
 import { Observable } from './observable'
-import { RequestDetails } from './requestCollection'
+import { RequestDetails, RequestEvent, RequestEventKind } from './requestCollection'
 import { noop } from './utils'
 
 export function isSafari() {
@@ -22,14 +22,19 @@ export function clearAllCookies() {
 
 export class FetchStubBuilder {
   private requests: RequestDetails[] = []
-  private pendingFetch = 0
   private whenAllCompleteFn: (messages: RequestDetails[]) => void = noop
 
-  constructor(observable: Observable<RequestDetails>) {
-    observable.subscribe((request: RequestDetails) => {
-      this.requests.push(request)
-      this.pendingFetch -= 1
-      if (this.pendingFetch === 0) {
+  constructor(observable: Observable<RequestEvent>) {
+    let pendingFetch = 0
+    observable.subscribe((request: RequestEvent) => {
+      if (request.kind === RequestEventKind.Start) {
+        pendingFetch += 1
+        return
+      }
+
+      this.requests.push(request.details)
+      pendingFetch -= 1
+      if (pendingFetch === 0) {
         // ensure that AssertionError are not swallowed by promise context
         setTimeout(() => {
           this.whenAllCompleteFn(this.requests)
@@ -44,7 +49,6 @@ export class FetchStubBuilder {
 
   getStub() {
     return (() => {
-      this.pendingFetch += 1
       let resolve: (response: ResponseStub) => unknown
       let reject: (error: Error) => unknown
       const promise: unknown = new Promise((res, rej) => {

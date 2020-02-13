@@ -12,7 +12,8 @@ import {
   monitor,
   msToNs,
   Omit,
-  RequestDetails,
+  RequestEvent,
+  RequestEventKind,
   RequestType,
   ResourceKind,
   withSnakeCaseKeys,
@@ -252,10 +253,14 @@ export function trackRequests(
   session: RumSession,
   addRumEvent: (event: RumEvent) => void
 ) {
-  lifeCycle.subscribe(LifeCycleEventType.REQUEST_COLLECTED, (requestDetails: RequestDetails) => {
+  lifeCycle.subscribe(LifeCycleEventType.REQUEST_COLLECTED, (requestEvent: RequestEvent) => {
     if (!session.isTrackedWithResource()) {
       return
     }
+    if (requestEvent.kind !== RequestEventKind.End) {
+      return
+    }
+    const requestDetails = requestEvent.details
     if (!isValidResource(requestDetails.url, configuration)) {
       return
     }

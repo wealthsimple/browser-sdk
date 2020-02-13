@@ -5,6 +5,7 @@ import {
   isRejected,
   isServerError,
   RequestDetails,
+  RequestEventKind,
   RequestObservable,
   RequestType,
   startRequestCollection,
@@ -163,7 +164,12 @@ export function trackNetworkError(
   errorObservable: ErrorObservable,
   requestObservable: RequestObservable
 ) {
-  requestObservable.subscribe((request: RequestDetails) => {
+  requestObservable.subscribe((requestEvent) => {
+    if (requestEvent.kind !== RequestEventKind.End) {
+      return
+    }
+
+    const request = requestEvent.details
     if (isRejected(request) || isServerError(request)) {
       errorObservable.notify({
         context: {
@@ -173,7 +179,7 @@ export function trackNetworkError(
           },
           http: {
             method: request.method,
-            status_code: request.status,
+            status_code: request.status || 0,
             url: request.url,
           },
         },

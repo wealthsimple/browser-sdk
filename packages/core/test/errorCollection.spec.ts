@@ -11,7 +11,7 @@ import {
   trackNetworkError,
 } from '../src/errorCollection'
 import { Observable } from '../src/observable'
-import { RequestDetails, RequestType } from '../src/requestCollection'
+import { RequestDetails, RequestEvent, RequestEventKind, RequestType } from '../src/requestCollection'
 import { StackTrace } from '../src/tracekit'
 import { ONE_MINUTE } from '../src/utils'
 
@@ -184,20 +184,28 @@ describe('runtime error formatter', () => {
 
 describe('network error tracker', () => {
   let errorObservableSpy: jasmine.Spy
-  let requestObservable: Observable<RequestDetails>
+  let requestObservable: Observable<RequestEvent>
   const DEFAULT_REQUEST = {
-    duration: 10,
-    method: 'GET',
-    response: 'Server error',
-    startTime: 0,
-    status: 503,
-    type: RequestType.XHR,
-    url: 'http://fake.com',
+    details: {
+      duration: 10,
+      method: 'GET',
+      response: 'Server error',
+      startTime: 0,
+      status: 503,
+      type: RequestType.XHR,
+      url: 'http://fake.com',
+    },
+    kind: RequestEventKind.End,
+    requestId: 'hop',
+  }
+
+  function createRequestEvent(details: Partial<RequestDetails>) {
+    return { ...DEFAULT_REQUEST, details: { ...DEFAULT_REQUEST.details, ...details } }
   }
 
   beforeEach(() => {
     const errorObservable = new Observable<ErrorMessage>()
-    requestObservable = new Observable<RequestDetails>()
+    requestObservable = new Observable<RequestEvent>()
     errorObservableSpy = spyOn(errorObservable, 'notify')
     const configuration = { requestErrorResponseLengthLimit: 32 }
     trackNetworkError(configuration as Configuration, errorObservable, requestObservable)
@@ -216,29 +224,29 @@ describe('network error tracker', () => {
   })
 
   it('should track refused request', () => {
-    requestObservable.notify({ ...DEFAULT_REQUEST, status: 0 })
+    requestObservable.notify(createRequestEvent({ status: 0 }))
     expect(errorObservableSpy).toHaveBeenCalled()
   })
 
   it('should not track client error', () => {
-    requestObservable.notify({ ...DEFAULT_REQUEST, status: 400 })
+    requestObservable.notify(createRequestEvent({ status: 400 }))
     expect(errorObservableSpy).not.toHaveBeenCalled()
   })
 
   it('should not track successful request', () => {
-    requestObservable.notify({ ...DEFAULT_REQUEST, status: 200 })
+    requestObservable.notify(createRequestEvent({ status: 200 }))
     expect(errorObservableSpy).not.toHaveBeenCalled()
   })
 
   it('should add a default error response', () => {
-    requestObservable.notify({ ...DEFAULT_REQUEST, response: undefined })
+    requestObservable.notify(createRequestEvent({ response: undefined }))
 
     const stack = (errorObservableSpy.calls.mostRecent().args[0] as ErrorMessage).context.error.stack
     expect(stack).toEqual('Failed to load')
   })
 
   it('should truncate error response', () => {
-    requestObservable.notify({ ...DEFAULT_REQUEST, response: 'Lorem ipsum dolor sit amet orci aliquam.' })
+    requestObservable.notify(createRequestEvent({ response: 'Lorem ipsum dolor sit amet orci aliquam.' }))
 
     const stack = (errorObservableSpy.calls.mostRecent().args[0] as ErrorMessage).context.error.stack
     expect(stack).toEqual('Lorem ipsum dolor sit amet orci ...')

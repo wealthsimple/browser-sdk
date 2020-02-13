@@ -9,6 +9,7 @@ import {
   makeGlobal,
   makeStub,
   monitor,
+  RequestEventKind,
   startRequestCollection,
   UserConfiguration,
 } from '@datadog/browser-core'
@@ -73,9 +74,9 @@ datadogRum.init = monitor((userConfiguration: RumUserConfiguration) => {
   startPerformanceCollection(lifeCycle, session)
 
   errorObservable.subscribe((errorMessage) => lifeCycle.notify(LifeCycleEventType.ERROR_COLLECTED, errorMessage))
-  requestObservable.subscribe((requestDetails) =>
-    lifeCycle.notify(LifeCycleEventType.REQUEST_COLLECTED, requestDetails)
-  )
+  requestObservable.subscribe((requestEvent) => {
+    lifeCycle.notify(LifeCycleEventType.REQUEST_COLLECTED, requestEvent)
+  })
 
   lodashAssign(datadogRum, globalApi)
   isAlreadyInitialized = true

@@ -12,7 +12,14 @@ export {
 } from './init'
 export { InternalMonitoring, MonitoringMessage, monitored, monitor, addMonitoringMessage } from './internalMonitoring'
 export { Observable } from './observable'
-export { RequestType, RequestDetails, startRequestCollection, RequestObservable } from './requestCollection'
+export {
+  RequestType,
+  RequestDetails,
+  RequestEvent,
+  RequestEventKind,
+  startRequestCollection,
+  RequestObservable,
+} from './requestCollection'
 export {
   startSessionManagement,
   // Exposed for tests

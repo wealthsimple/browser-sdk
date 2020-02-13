@@ -4,18 +4,29 @@ import { toStackTraceString } from './errorCollection'
 import { monitor } from './internalMonitoring'
 import { Observable } from './observable'
 import { computeStackTrace } from './tracekit'
-import { ResourceKind } from './utils'
+import { generateUUID, ResourceKind } from './utils'
 
 export enum RequestType {
   FETCH = ResourceKind.FETCH,
   XHR = ResourceKind.XHR,
 }
 
+export enum RequestEventKind {
+  Start,
+  End,
+}
+
+export interface RequestEvent {
+  kind: RequestEventKind
+  details: RequestDetails
+  requestId: string
+}
+
 export interface RequestDetails {
   type: RequestType
   method: string
   url: string
-  status: number
+  status?: number
   response?: string
   responseType?: string
   startTime: number
@@ -34,12 +45,12 @@ interface BrowserXHR extends XMLHttpRequest {
   }
 }
 
-export type RequestObservable = Observable<RequestDetails>
-let requestObservable: Observable<RequestDetails>
+export type RequestObservable = Observable<RequestEvent>
+let requestObservable: Observable<RequestEvent>
 
 export function startRequestCollection() {
   if (!requestObservable) {
-    requestObservable = new Observable<RequestDetails>()
+    requestObservable = new Observable<RequestEvent>()
     trackXhr(requestObservable)
     trackFetch(requestObservable)
   }
@@ -51,7 +62,7 @@ export function trackXhr(observable: RequestObservable) {
   XMLHttpRequest.prototype.open = monitor(function(this: BrowserXHR, method: string, url: string) {
     this._datadog_xhr = {
       method,
-      url,
+      url: normalizeUrl(url),
     }
     return originalOpen.apply(this, arguments as any)
   })
@@ -59,16 +70,37 @@ export function trackXhr(observable: RequestObservable) {
   const originalSend = XMLHttpRequest.prototype.send
   XMLHttpRequest.prototype.send = function(this: BrowserXHR, body: unknown) {
     const startTime = performance.now()
+    const requestId = generateUUID()
+    const { method, url } = this._datadog_xhr
+    const traceId = getTraceId()
+
+    observable.notify({
+      requestId,
+      details: {
+        method,
+        startTime,
+        traceId,
+        url,
+        duration: 0,
+        type: RequestType.XHR,
+      },
+      kind: RequestEventKind.Start,
+    })
+
     const reportXhr = () => {
       observable.notify({
-        startTime,
-        duration: performance.now() - startTime,
-        method: this._datadog_xhr.method,
-        response: this.response as string | undefined,
-        status: this.status,
-        traceId: getTraceId(),
-        type: RequestType.XHR,
-        url: normalizeUrl(this._datadog_xhr.url),
+        requestId,
+        details: {
+          method,
+          startTime,
+          traceId,
+          url,
+          duration: performance.now() - startTime,
+          response: this.response as string | undefined,
+          status: this.status,
+          type: RequestType.XHR,
+        },
+        kind: RequestEventKind.End,
       })
     }
 
@@ -87,20 +119,40 @@ export function trackFetch(observable: RequestObservable) {
   window.fetch = monitor(function(this: GlobalFetch['fetch'], input: RequestInfo, init?: RequestInit) {
     const method = (init && init.method) || (typeof input === 'object' && input.method) || 'GET'
     const startTime = performance.now()
+    const url = normalizeUrl((typeof input === 'object' && input.url) || (input as string))
+    const traceId = getTraceId()
+
+    const requestId = generateUUID()
+    observable.notify({
+      requestId,
+      details: {
+        method,
+        startTime,
+        traceId,
+        url,
+        duration: 0,
+        type: RequestType.FETCH,
+      },
+      kind: RequestEventKind.Start,
+    })
+
     const reportFetch = async (response: Response | Error) => {
       const duration = performance.now() - startTime
-      const url = normalizeUrl((typeof input === 'object' && input.url) || (input as string))
       if ('stack' in response || response instanceof Error) {
         const stackTrace = computeStackTrace(response)
         observable.notify({
-          duration,
-          method,
-          startTime,
-          url,
-          response: toStackTraceString(stackTrace),
-          status: 0,
-          traceId: getTraceId(),
-          type: RequestType.FETCH,
+          requestId,
+          details: {
+            duration,
+            method,
+            startTime,
+            traceId,
+            url,
+            response: toStackTraceString(stackTrace),
+            status: 0,
+            type: RequestType.FETCH,
+          },
+          kind: RequestEventKind.End,
         })
       } else if ('status' in response) {
         let text: string
@@ -110,15 +162,19 @@ export function trackFetch(observable: RequestObservable) {
           text = `Unable to retrieve response: ${e}`
         }
         observable.notify({
-          duration,
-          method,
-          startTime,
-          url,
-          response: text,
-          responseType: response.type,
-          status: response.status,
-          traceId: getTraceId(),
-          type: RequestType.FETCH,
+          requestId,
+          details: {
+            duration,
+            method,
+            startTime,
+            traceId,
+            url,
+            response: text,
+            responseType: response.type,
+            status: response.status,
+            type: RequestType.FETCH,
+          },
+          kind: RequestEventKind.End,
         })
       }
     }
@@ -137,7 +193,7 @@ export function isRejected(request: RequestDetails) {
 }
 
 export function isServerError(request: RequestDetails) {
-  return request.status >= 500
+  return typeof request.status === 'number' && request.status >= 500
 }
 
 /**

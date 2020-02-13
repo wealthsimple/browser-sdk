@@ -4,6 +4,7 @@ import {
   isServerError,
   normalizeUrl,
   RequestDetails,
+  RequestEvent,
   RequestType,
   trackFetch,
 } from '../src/requestCollection'
@@ -21,7 +22,7 @@ describe('fetch tracker', () => {
       pending('no fetch support')
     }
     originalFetch = window.fetch
-    const requestObservable = new Observable<RequestDetails>()
+    const requestObservable = new Observable<RequestEvent>()
     notifySpy = spyOn(requestObservable, 'notify').and.callThrough()
     fetchStubBuilder = new FetchStubBuilder(requestObservable)
     window.fetch = fetchStubBuilder.getStub()
