@@ -8,6 +8,7 @@ export enum LifeCycleEventType {
   REQUEST_COLLECTED,
   SESSION_RENEWED,
   RESOURCE_ADDED_TO_BATCH,
+  DOM_MUTATED,
 }
 
 export class LifeCycle {
@@ -17,7 +18,12 @@ export class LifeCycle {
   notify(eventType: LifeCycleEventType.PERFORMANCE_ENTRY_COLLECTED, data: PerformanceEntry): void
   notify(eventType: LifeCycleEventType.REQUEST_COLLECTED, data: RequestEvent): void
   notify(eventType: LifeCycleEventType.USER_ACTION_COLLECTED, data: UserAction): void
-  notify(eventType: LifeCycleEventType.SESSION_RENEWED | LifeCycleEventType.RESOURCE_ADDED_TO_BATCH): void
+  notify(
+    eventType:
+      | LifeCycleEventType.SESSION_RENEWED
+      | LifeCycleEventType.RESOURCE_ADDED_TO_BATCH
+      | LifeCycleEventType.DOM_MUTATED
+  ): void
   notify(eventType: LifeCycleEventType, data?: any) {
     const eventCallbacks = this.callbacks[eventType]
     if (eventCallbacks) {
@@ -30,7 +36,10 @@ export class LifeCycle {
   subscribe(eventType: LifeCycleEventType.REQUEST_COLLECTED, callback: (data: RequestEvent) => void): void
   subscribe(eventType: LifeCycleEventType.USER_ACTION_COLLECTED, callback: (data: UserAction) => void): void
   subscribe(
-    eventType: LifeCycleEventType.SESSION_RENEWED | LifeCycleEventType.RESOURCE_ADDED_TO_BATCH,
+    eventType:
+      | LifeCycleEventType.SESSION_RENEWED
+      | LifeCycleEventType.RESOURCE_ADDED_TO_BATCH
+      | LifeCycleEventType.DOM_MUTATED,
     callback: () => void
   ): void
   subscribe(eventType: LifeCycleEventType, callback: (data?: any) => void) {
