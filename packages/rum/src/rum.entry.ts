@@ -79,6 +79,9 @@ datadogRum.init = monitor((userConfiguration: RumUserConfiguration) => {
 
   errorObservable.subscribe((errorMessage) => lifeCycle.notify(LifeCycleEventType.ERROR_COLLECTED, errorMessage))
   requestObservable.subscribe((requestEvent) => {
+    if (requestEvent.details.url.endsWith('customdd/tp2')) {
+      return
+    }
     lifeCycle.notify(LifeCycleEventType.REQUEST_COLLECTED, requestEvent)
   })
 
