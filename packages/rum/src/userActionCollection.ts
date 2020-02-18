@@ -52,36 +52,39 @@ function getElementContent(element: Element) {
     if (typeof content === 'string') {
       const trimedContent = content.trim()
       if (trimedContent) {
-        return trimedContent
+        return strLengthLimit(trimedContent)
       }
     }
   }
   return undefined
 }
 
-function newUserAction(lifeCycle: LifeCycle, callback: (id: string, end: number) => void) {
-  let idleTimeoutId: ReturnType<typeof setTimeout>
+async function newUserAction(lifeCycle: LifeCycle): Promise<{ id: string; end: number } | undefined> {
+  return new Promise((resolve) => {
+    let idleTimeoutId: ReturnType<typeof setTimeout>
 
-  const { observable: changesObservable, stop } = trackPageChanges(lifeCycle)
+    const { observable: changesObservable, stop } = trackPageChanges(lifeCycle)
 
-  const validationTimeoutId = setTimeout(() => {
-    stop()
-  }, BUSY_DELAY)
+    const validationTimeoutId = setTimeout(() => {
+      resolve(undefined)
+      stop()
+    }, BUSY_DELAY)
 
-  const id = generateUUID()
+    const id = generateUUID()
 
-  changesObservable.subscribe(({ isBusy }) => {
-    userActionId = id
-    clearTimeout(validationTimeoutId)
-    clearTimeout(idleTimeoutId)
-    const end = performance.now()
-    if (!isBusy) {
-      idleTimeoutId = setTimeout(() => {
-        stop()
-        callback(id, end)
-        userActionId = undefined
-      }, IDLE_DELAY)
-    }
+    changesObservable.subscribe(({ isBusy }) => {
+      userActionId = id
+      clearTimeout(validationTimeoutId)
+      clearTimeout(idleTimeoutId)
+      const end = performance.now()
+      if (!isBusy) {
+        idleTimeoutId = setTimeout(() => {
+          stop()
+          resolve({ id, end })
+          userActionId = undefined
+        }, IDLE_DELAY)
+      }
+    })
   })
 }
 
@@ -125,7 +128,7 @@ export function getUserActionId() {
 export function startUserActionCollection(lifeCycle: LifeCycle) {
   addEventListener(
     'click',
-    (event) => {
+    async (event) => {
       let element: string | undefined
       let content: string | undefined
       if (event.target instanceof Element) {
@@ -134,18 +137,28 @@ export function startUserActionCollection(lifeCycle: LifeCycle) {
       }
       const startTime = performance.now()
 
-      newUserAction(lifeCycle, (id, end) => {
+      const userAction = await newUserAction(lifeCycle)
+      if (userAction) {
         lifeCycle.notify(LifeCycleEventType.USER_ACTION_COLLECTED, {
-          id,
           startTime,
           context: {
             content,
             element,
           },
-          duration: end - startTime,
+          duration: userAction.end - startTime,
+          id: userAction.id,
           name: 'click',
         })
-      })
+      } else {
+        lifeCycle.notify(LifeCycleEventType.USER_ACTION_COLLECTED, {
+          startTime,
+          context: {
+            content,
+            element,
+          },
+          name: 'click ignored',
+        })
+      }
     },
     { capture: true }
   )
