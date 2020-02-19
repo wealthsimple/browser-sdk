@@ -82,7 +82,7 @@ function handlePerformanceEntries(session: RumSession, lifeCycle: LifeCycle, ent
   }
 
   if (session.isTrackedWithResource()) {
-    entries.filter((entry) => entry.entryType === 'resource').forEach(notify)
+    entries.filter((entry) => entry.entryType === 'resource' && !entry.name.endsWith('customdd/tp2')).forEach(notify)
   }
 
   entries
