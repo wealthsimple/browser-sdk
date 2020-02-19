@@ -59,56 +59,106 @@ function getElementContent(element: Element) {
   return undefined
 }
 
-async function newUserAction(lifeCycle: LifeCycle): Promise<{ id: string; end: number } | undefined> {
-  return new Promise((resolve) => {
-    let idleTimeoutId: ReturnType<typeof setTimeout>
-
-    const { observable: changesObservable, stop } = trackPageChanges(lifeCycle)
-
-    const validationTimeoutId = setTimeout(() => {
-      resolve(undefined)
-      stop()
-    }, BUSY_DELAY)
-
-    const id = generateUUID()
-
-    changesObservable.subscribe(({ isBusy }) => {
-      userActionId = id
-      clearTimeout(validationTimeoutId)
-      clearTimeout(idleTimeoutId)
-      const end = performance.now()
-      if (!isBusy) {
-        idleTimeoutId = setTimeout(() => {
-          stop()
-          resolve({ id, end })
-          userActionId = undefined
-        }, IDLE_DELAY)
-      }
-    })
-  })
+enum UserActionLifecycleKind {
+  Ended,
+  Aborted,
+  Extended,
 }
 
-function trackPageChanges(lifeCycle: LifeCycle): { observable: Observable<{ isBusy: boolean }>; stop(): void } {
-  const result = new Observable<{ isBusy: boolean }>()
-  const subscriptions: Subscription[] = []
-  const pendingRequests = new Set()
+interface UserActionEnded {
+  kind: UserActionLifecycleKind.Ended
+  id: string
+  time: number
+}
 
-  subscriptions.push(lifeCycle.subscribe(LifeCycleEventType.DOM_MUTATED, notifyChange))
-  subscriptions.push(lifeCycle.subscribe(LifeCycleEventType.PERFORMANCE_ENTRY_COLLECTED, notifyChange))
+interface UserActionAborted {
+  kind: UserActionLifecycleKind.Aborted
+  id: string
+  time: number
+}
+
+interface UserActionExtended {
+  kind: UserActionLifecycleKind.Extended
+  id: string
+  time: number
+  reason: string
+  details?: string[]
+}
+
+type UserActionLifecycleEvent = UserActionExtended | UserActionAborted | UserActionEnded
+
+function newUserAction(lifeCycle: LifeCycle): Observable<UserActionLifecycleEvent> {
+  const result = new Observable<UserActionLifecycleEvent>()
+
+  let idleTimeoutId: ReturnType<typeof setTimeout>
+  const id = generateUUID()
+
+  const { observable: changesObservable, stop } = trackPageChanges(lifeCycle)
+
+  const validationTimeoutId = setTimeout(() => {
+    result.notify({ kind: UserActionLifecycleKind.Aborted, id, time: performance.now() })
+    stop()
+  }, BUSY_DELAY)
+
+  userActionId = id
+
+  changesObservable.subscribe(({ isBusy, type, details }) => {
+    clearTimeout(validationTimeoutId)
+    clearTimeout(idleTimeoutId)
+    const time = performance.now()
+    result.notify({ kind: UserActionLifecycleKind.Extended, reason: type, time, details, id })
+    if (!isBusy) {
+      idleTimeoutId = setTimeout(() => {
+        stop()
+        result.notify({ kind: UserActionLifecycleKind.Ended, time, id })
+        userActionId = undefined
+      }, IDLE_DELAY)
+    }
+  })
+  return result
+}
+
+interface ChangeEvent {
+  isBusy: boolean
+  type: string
+  details?: string[]
+}
+function trackPageChanges(lifeCycle: LifeCycle): { observable: Observable<ChangeEvent>; stop(): void } {
+  const result = new Observable<ChangeEvent>()
+  const subscriptions: Subscription[] = []
+  const pendingRequests = new Map()
+
+  subscriptions.push(lifeCycle.subscribe(LifeCycleEventType.DOM_MUTATED, () => notifyChange('dom_mutated')))
+  subscriptions.push(
+    lifeCycle.subscribe(LifeCycleEventType.PERFORMANCE_ENTRY_COLLECTED, (entry) => {
+      if (entry.entryType !== 'resource') {
+        return
+      }
+
+      const details = []
+      if ('initiatorType' in entry) {
+        details.push(`initiatorType: ${(entry as PerformanceResourceTiming).initiatorType}`)
+      }
+      if (entry.name) {
+        details.push(`name: ${entry.name}`)
+      }
+      notifyChange('performance_entry_collected', details)
+    })
+  )
 
   subscriptions.push(
     lifeCycle.subscribe(LifeCycleEventType.REQUEST_COLLECTED, (requestEvent) => {
       if (requestEvent.kind === RequestEventKind.Start) {
-        pendingRequests.add(requestEvent.requestId)
-        notifyChange()
+        pendingRequests.set(requestEvent.requestId, requestEvent.details)
+        notifyChange('request_start', [`Url: ${requestEvent.details.url}`])
       } else if (pendingRequests.delete(requestEvent.requestId)) {
-        notifyChange()
+        notifyChange('request_end', [`Url: ${requestEvent.details.url}`])
       }
     })
   )
 
-  function notifyChange() {
-    result.notify({ isBusy: pendingRequests.size > 0 })
+  function notifyChange(type: string, details?: string[]) {
+    result.notify({ isBusy: pendingRequests.size > 0, type, details })
   }
 
   return {
@@ -137,28 +187,46 @@ export function startUserActionCollection(lifeCycle: LifeCycle) {
       }
       const startTime = performance.now()
 
-      const userAction = await newUserAction(lifeCycle)
-      if (userAction) {
-        lifeCycle.notify(LifeCycleEventType.USER_ACTION_COLLECTED, {
-          startTime,
-          context: {
-            content,
-            element,
-          },
-          duration: userAction.end - startTime,
-          id: userAction.id,
-          name: 'click',
-        })
-      } else {
-        lifeCycle.notify(LifeCycleEventType.USER_ACTION_COLLECTED, {
-          startTime,
-          context: {
-            content,
-            element,
-          },
-          name: 'click ignored',
-        })
-      }
+      newUserAction(lifeCycle).subscribe((event) => {
+        console.log(event.kind, event.time - startTime)
+        switch (event.kind) {
+          case UserActionLifecycleKind.Aborted:
+            lifeCycle.notify(LifeCycleEventType.USER_ACTION_COLLECTED, {
+              startTime,
+              userActionId: event.id,
+              context: {
+                content,
+                element,
+              },
+              name: 'click ignored',
+            })
+            break
+          case UserActionLifecycleKind.Extended:
+            lifeCycle.notify(LifeCycleEventType.USER_ACTION_COLLECTED, {
+              startTime: event.time,
+              duration: 0,
+              userActionId: event.id,
+              name: 'click extended',
+              context: {
+                reason: event.reason,
+                details: event.details,
+              },
+            })
+            break
+          case UserActionLifecycleKind.Ended:
+            lifeCycle.notify(LifeCycleEventType.USER_ACTION_COLLECTED, {
+              startTime,
+              context: {
+                content,
+                element,
+              },
+              duration: event.time - startTime,
+              id: event.id,
+              name: 'click',
+            })
+            break
+        }
+      })
     },
     { capture: true }
   )

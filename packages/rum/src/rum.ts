@@ -40,6 +40,7 @@ export type PerformanceLongTaskTiming = PerformanceEntry
 export interface UserAction {
   name: string
   context?: Context
+  userActionId?: string
   id?: string
   startTime?: number
   duration?: number
@@ -125,6 +126,7 @@ export interface RumUserAction {
     category: RumEventCategory.USER_ACTION
     name: string
     id?: string
+    user_action_id: string | undefined
   }
   startTime?: number
   [key: string]: ContextValue
@@ -246,18 +248,24 @@ function trackErrors(lifeCycle: LifeCycle, addRumEvent: (event: RumEvent) => voi
 }
 
 function trackUserAction(lifeCycle: LifeCycle, addUserEvent: (event: RumUserAction) => void) {
-  lifeCycle.subscribe(LifeCycleEventType.USER_ACTION_COLLECTED, ({ id, name, context, startTime, duration }) => {
-    addUserEvent({
-      ...context,
-      duration,
-      evt: {
-        id,
-        name,
-        category: RumEventCategory.USER_ACTION,
-      },
-      start_time: startTime,
-    })
-  })
+  lifeCycle.subscribe(
+    LifeCycleEventType.USER_ACTION_COLLECTED,
+    ({ id, name, context, startTime, duration, userActionId }) => {
+      console.log('ADD USER EVENT', { id, name, context, startTime, duration, userActionId })
+      const uai = userActionId || getUserActionId()
+      addUserEvent({
+        ...context,
+        duration,
+        evt: {
+          id,
+          name,
+          category: RumEventCategory.USER_ACTION,
+          user_action_id: uai !== id ? uai : undefined,
+        },
+        start_time: startTime,
+      })
+    }
+  )
 }
 
 export function trackRequests(
