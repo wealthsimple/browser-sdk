@@ -90,6 +90,9 @@ type UserActionLifecycleEvent = UserActionExtended | UserActionAborted | UserAct
 
 function newUserAction(lifeCycle: LifeCycle): Observable<UserActionLifecycleEvent> {
   const result = new Observable<UserActionLifecycleEvent>()
+  if (userActionId) {
+    return result
+  }
 
   let idleTimeoutId: ReturnType<typeof setTimeout>
   const id = generateUUID()
