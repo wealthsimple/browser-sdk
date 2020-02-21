@@ -3,6 +3,7 @@ import { LifeCycle, LifeCycleEventType, Subscription } from './lifeCycle'
 
 const IDLE_DELAY = 100
 const BUSY_DELAY = 100
+const USER_ACTION_MAX_DURATION = 10_000
 
 function getElementAsString(element: Element) {
   const clone = element.cloneNode() as Element
@@ -93,12 +94,10 @@ function newUserAction(lifeCycle: LifeCycle): Observable<UserActionLifecycleEven
   let idleTimeoutId: ReturnType<typeof setTimeout>
   const id = generateUUID()
 
-  const { observable: changesObservable, stop } = trackPageChanges(lifeCycle)
+  const { observable: changesObservable, stop: stopChangesTracking } = trackPageChanges(lifeCycle)
 
-  const validationTimeoutId = setTimeout(() => {
-    result.notify({ id, kind: UserActionLifecycleKind.Aborted, time: performance.now() })
-    stop()
-  }, BUSY_DELAY)
+  const validationTimeoutId = setTimeout(() => finish(UserActionLifecycleKind.Aborted), BUSY_DELAY)
+  const maxDurationTimeoutId = setTimeout(() => finish(UserActionLifecycleKind.Ended), USER_ACTION_MAX_DURATION)
 
   userActionId = id
 
@@ -108,13 +107,19 @@ function newUserAction(lifeCycle: LifeCycle): Observable<UserActionLifecycleEven
     const time = performance.now()
     result.notify({ details, id, time, kind: UserActionLifecycleKind.Extended, reason: type })
     if (!isBusy) {
-      idleTimeoutId = setTimeout(() => {
-        stop()
-        result.notify({ id, time, kind: UserActionLifecycleKind.Ended })
-        userActionId = undefined
-      }, IDLE_DELAY)
+      idleTimeoutId = setTimeout(() => finish(UserActionLifecycleKind.Ended, time), IDLE_DELAY)
     }
   })
+
+  function finish(kind: UserActionLifecycleKind.Ended | UserActionLifecycleKind.Aborted, time = performance.now()) {
+    clearTimeout(validationTimeoutId)
+    clearTimeout(idleTimeoutId)
+    clearTimeout(maxDurationTimeoutId)
+    stopChangesTracking()
+    result.notify({ id, kind, time })
+    userActionId = undefined
+  }
+
   return result
 }
 
