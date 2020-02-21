@@ -96,7 +96,7 @@ function newUserAction(lifeCycle: LifeCycle): Observable<UserActionLifecycleEven
   const { observable: changesObservable, stop } = trackPageChanges(lifeCycle)
 
   const validationTimeoutId = setTimeout(() => {
-    result.notify({ kind: UserActionLifecycleKind.Aborted, id, time: performance.now() })
+    result.notify({ id, kind: UserActionLifecycleKind.Aborted, time: performance.now() })
     stop()
   }, BUSY_DELAY)
 
@@ -106,11 +106,11 @@ function newUserAction(lifeCycle: LifeCycle): Observable<UserActionLifecycleEven
     clearTimeout(validationTimeoutId)
     clearTimeout(idleTimeoutId)
     const time = performance.now()
-    result.notify({ kind: UserActionLifecycleKind.Extended, reason: type, time, details, id })
+    result.notify({ details, id, time, kind: UserActionLifecycleKind.Extended, reason: type })
     if (!isBusy) {
       idleTimeoutId = setTimeout(() => {
         stop()
-        result.notify({ kind: UserActionLifecycleKind.Ended, time, id })
+        result.notify({ id, time, kind: UserActionLifecycleKind.Ended })
         userActionId = undefined
       }, IDLE_DELAY)
     }
@@ -158,7 +158,7 @@ function trackPageChanges(lifeCycle: LifeCycle): { observable: Observable<Change
   )
 
   function notifyChange(type: string, details?: string[]) {
-    result.notify({ isBusy: pendingRequests.size > 0, type, details })
+    result.notify({ type, details, isBusy: pendingRequests.size > 0 })
   }
 
   return {
@@ -187,30 +187,30 @@ export function startUserActionCollection(lifeCycle: LifeCycle) {
       }
       const startTime = performance.now()
 
-      newUserAction(lifeCycle).subscribe((event) => {
-        console.log(event.kind, event.time - startTime)
-        switch (event.kind) {
+      newUserAction(lifeCycle).subscribe((lifeCycleEvent) => {
+        console.log(lifeCycleEvent.kind, lifeCycleEvent.time - startTime)
+        switch (lifeCycleEvent.kind) {
           case UserActionLifecycleKind.Aborted:
             lifeCycle.notify(LifeCycleEventType.USER_ACTION_COLLECTED, {
               startTime,
-              userActionId: event.id,
               context: {
                 content,
                 element,
               },
               name: 'click ignored',
+              userActionId: lifeCycleEvent.id,
             })
             break
           case UserActionLifecycleKind.Extended:
             lifeCycle.notify(LifeCycleEventType.USER_ACTION_COLLECTED, {
-              startTime: event.time,
-              duration: 0,
-              userActionId: event.id,
-              name: 'click extended',
               context: {
-                reason: event.reason,
-                details: event.details,
+                details: lifeCycleEvent.details,
+                reason: lifeCycleEvent.reason,
               },
+              duration: 0,
+              name: 'click extended',
+              startTime: lifeCycleEvent.time,
+              userActionId: lifeCycleEvent.id,
             })
             break
           case UserActionLifecycleKind.Ended:
@@ -220,8 +220,8 @@ export function startUserActionCollection(lifeCycle: LifeCycle) {
                 content,
                 element,
               },
-              duration: event.time - startTime,
-              id: event.id,
+              duration: lifeCycleEvent.time - startTime,
+              id: lifeCycleEvent.id,
               name: 'click',
             })
             break
