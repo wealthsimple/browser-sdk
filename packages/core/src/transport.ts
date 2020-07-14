@@ -25,6 +25,11 @@ export class HttpRequest {
     }
     const request = new XMLHttpRequest()
     request.open('POST', url, true)
+    //
+    // setRequestHeader must be called after open() but before send(), per the spec:
+    // https://developer.mozilla.org/en-US/docs/Web/API/XMLHttpRequest/setRequestHeader
+    //
+    request.setRequestHeader('Content-Type', 'text/plain;charset=UTF-8');
     request.send(data)
   }
 }
